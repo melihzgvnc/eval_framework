@@ -13,9 +13,6 @@ class NLIEvaluator(BaseEvaluator):
 
     def evaluate(self, sample: str, answer: str) -> EvaluationResult:
         result = self.model.nli_predict(sample, answer)
-
-        return EvaluationResult(
-            score=result['confidence'],
-            passed=result.get('nli_relation') == 'entailment',
-            details=result
-        )
+        
+        # Use the factory method for consistent NLI results
+        return EvaluationResult.from_nli_result(result)
