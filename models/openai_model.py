@@ -113,7 +113,7 @@ class OpenAIModel(Model):
         """
         # Extract parameters
         instructions = kwargs.get("instructions", "")
-        temperature = kwargs.get("temperature", 0.7)
+        temperature = kwargs.get("temperature", 0.2)
         max_tokens = kwargs.get("max_tokens", 1000)
         
         # Make API call
