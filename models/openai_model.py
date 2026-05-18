@@ -170,6 +170,11 @@ class OpenAIModel(Model):
     ) -> Dict[str, Any]:
         """Generate structured JSON output.
         
+        Always enforces JSON output. When a schema is provided and the model
+        supports it, OpenAI's strict `json_schema` response format is used to
+        guarantee schema-conforming output. Otherwise, falls back to JSON mode
+        with the schema injected into the system prompt.
+        
         Args:
             prompt: Input text
             schema: Optional JSON schema for the response
@@ -182,41 +187,62 @@ class OpenAIModel(Model):
             ValueError: If JSON parsing fails
         """
         import json
-        
-        # Use JSON mode if available (GPT-4o, GPT-4 Turbo, etc.)
-        if self.model in ["gpt-4o", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"]:
+
+        # Models that support strict json_schema response format.
+        json_schema_models = {"gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini"}
+        # Models that support plain json_object response format.
+        json_object_models = json_schema_models | {"gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"}
+
+        system_msg = kwargs.get("system", "You are a helpful assistant.")
+
+        if schema and self.model in json_schema_models:
+            # Strongest enforcement: strict JSON schema.
+            response_format = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "structured_response",
+                    "schema": schema,
+                    "strict": False,
+                },
+            }
+        elif self.model in json_object_models:
+            # JSON mode: model is constrained to emit valid JSON.
             response_format = {"type": "json_object"}
-            
-            # Add JSON schema instructions if provided
             if schema:
-                system_msg = kwargs.get("system", "You are a helpful assistant.")
-                system_msg += f"\n\nReturn a JSON object matching this schema: {json.dumps(schema)}"
-                kwargs["system"] = system_msg
+                system_msg += (
+                    "\n\nReturn a JSON object matching this schema: "
+                    f"{json.dumps(schema)}"
+                )
         else:
-            # For models without native JSON mode, instruct to return JSON
-            system_msg = kwargs.get("system", "You are a helpful assistant.")
+            # Older model without JSON support: best-effort prompting.
+            response_format = {"type": "text"}
             system_msg += "\n\nReturn your response as a valid JSON object."
             if schema:
-                system_msg += f" The JSON should match this schema: {json.dumps(schema)}"
-            kwargs["system"] = system_msg
-            response_format = {"type": "text"}
-        
+                system_msg += (
+                    f" The JSON should match this schema: {json.dumps(schema)}"
+                )
+
+        kwargs["system"] = system_msg
         kwargs["response_format"] = response_format
-        
-        # Generate response
+
         response_text = self.generate(prompt, **kwargs)
-        
-        # Parse JSON
+
         try:
-            # Try to extract JSON if it's embedded in text
-            import re
-            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
-            if json_match:
-                response_text = json_match.group(0)
-            
             return json.loads(response_text)
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Failed to parse JSON response: {e}\nResponse: {response_text}")
+        except json.JSONDecodeError:
+            # Last-resort: try to extract a JSON object embedded in text.
+            import re
+            match = re.search(r"\{.*\}", response_text, re.DOTALL)
+            if match:
+                try:
+                    return json.loads(match.group(0))
+                except json.JSONDecodeError as e:
+                    raise ValueError(
+                        f"Failed to parse JSON response: {e}\nResponse: {response_text}"
+                    ) from e
+            raise ValueError(
+                f"Model did not return valid JSON.\nResponse: {response_text}"
+            )
     
     def set_api_key(self, api_key: str) -> None:
         """Update the API key and reinitialize the client.

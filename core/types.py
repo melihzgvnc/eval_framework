@@ -69,13 +69,14 @@ class EvaluationResult:
     
     @classmethod
     def from_llm_judge_result(
-        cls, 
+        cls,
         score: float,
         reasoning: str,
         sub_scores: Optional[Dict[str, float]] = None,
         raw_response: Optional[str] = None,
         threshold: float = 0.5,
-        **kwargs
+        confidence: Optional[float] = None,
+        **kwargs,
     ) -> "EvaluationResult":
         """Create from LLM Judge result."""
         return cls(
@@ -86,6 +87,7 @@ class EvaluationResult:
             reasoning=reasoning,
             sub_scores=sub_scores,
             raw_response=raw_response,
+            confidence=confidence,
         )
 
 
