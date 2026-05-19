@@ -10,6 +10,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import List, Optional
 
+from eval_framework.cache import BaseCache, make_key
 from eval_framework.claims.types import Claim, ClaimType, DecompositionResult
 from eval_framework.claims.prompts import (
     DECOMPOSITION_PROMPT,
@@ -155,6 +156,7 @@ class ClaimDecomposer:
     temperature: float = 0.1
     max_tokens: int = 2000
     fallback_to_heuristic: bool = True
+    cache: Optional[BaseCache] = None
     _model: Optional[OpenAIModel] = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -204,10 +206,27 @@ class ClaimDecomposer:
                 metadata={"reason": "empty_input"},
             )
 
+        # Cache lookup (LLM path only — heuristics are cheap)
+        cache_key = None
+        if self.cache is not None and self._model is not None:
+            cache_key = make_key(
+                "claims",
+                text=text,
+                context=context,
+                model=self.model_name,
+                temperature=self.temperature,
+            )
+            cached = self.cache.get(cache_key)
+            if cached is not None:
+                return DecompositionResult.from_dict(cached)
+
         # Try LLM decomposition
         if self._model is not None:
             try:
-                return self._decompose_with_llm(text, context)
+                result = self._decompose_with_llm(text, context)
+                if cache_key is not None:
+                    self.cache.set(cache_key, result.to_dict())
+                return result
             except Exception as exc:
                 logger.warning(
                     "LLM decomposition failed: %s. Falling back to heuristic.",

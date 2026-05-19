@@ -51,8 +51,34 @@ class EvaluationResult:
             "reasoning": self.reasoning,
             "sub_scores": self.sub_scores,
             "confidence": self.confidence,
+            "raw_response": self.raw_response,
             "nli_relation": self.nli_relation,
+            "probabilities": self.probabilities,
         }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "EvaluationResult":
+        """Reconstruct an EvaluationResult from its ``to_dict`` form.
+
+        Inverse of ``to_dict``. Used for cache deserialization.
+        """
+        evaluation_type = data.get("evaluation_type", EvaluationType.NLI.value)
+        if isinstance(evaluation_type, str):
+            evaluation_type = EvaluationType(evaluation_type)
+
+        return cls(
+            score=data["score"],
+            passed=data["passed"],
+            details=data.get("details", {}),
+            evaluation_type=evaluation_type,
+            metadata=data.get("metadata"),
+            reasoning=data.get("reasoning"),
+            sub_scores=data.get("sub_scores"),
+            confidence=data.get("confidence"),
+            raw_response=data.get("raw_response"),
+            nli_relation=data.get("nli_relation"),
+            probabilities=data.get("probabilities"),
+        )
     
     @classmethod
     def from_nli_result(cls, nli_result: Dict[str, Any]) -> "EvaluationResult":

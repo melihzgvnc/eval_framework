@@ -82,3 +82,23 @@ class DecompositionResult:
             ],
             "metadata": self.metadata,
         }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "DecompositionResult":
+        """Reconstruct a DecompositionResult from its ``to_dict`` form."""
+        claims = [
+            Claim(
+                text=c["text"],
+                index=c["index"],
+                claim_type=ClaimType(c.get("claim_type", "unknown")),
+                source_sentence=c.get("source_sentence"),
+                metadata=c.get("metadata") or {},
+            )
+            for c in data.get("claims", [])
+        ]
+        return cls(
+            claims=claims,
+            original_text=data.get("original_text", ""),
+            method=data.get("method", "unknown"),
+            metadata=data.get("metadata") or {},
+        )

@@ -10,6 +10,7 @@ import json
 from dataclasses import dataclass
 from typing import Dict, Optional
 
+from eval_framework.cache import BaseCache, make_key
 from eval_framework.core.base import BaseEvaluator
 from eval_framework.core.types import EvaluationResult
 from eval_framework.judges import JUDGMENT_SCHEMA, RUBRICS, SYSTEM_MESSAGE
@@ -26,6 +27,7 @@ class LLMJudge(BaseEvaluator):
         api_key: Optional[str] = None,
         evaluation_criteria: str = "factuality",
         threshold: float = 0.7,
+        cache: Optional[BaseCache] = None,
     ):
         """Initialize the LLM judge.
 
@@ -34,6 +36,8 @@ class LLMJudge(BaseEvaluator):
             api_key: Optional API key (falls back to OPENAI_API_KEY env var).
             evaluation_criteria: One of the keys in ``judges.RUBRICS``.
             threshold: Score threshold (0-1) for ``passed=True``.
+            cache: Optional cache for memoizing identical (sample, answer,
+                criteria, model) triples. ``None`` disables caching.
 
         Raises:
             ValueError: If ``evaluation_criteria`` is not a known rubric.
@@ -50,8 +54,10 @@ class LLMJudge(BaseEvaluator):
             api_key=api_key,
             use_responses_api=False,
         )
+        self.model_name = model_name
         self.evaluation_criteria = evaluation_criteria
         self.threshold = threshold
+        self.cache = cache
 
     def evaluate(self, sample: str, answer: str) -> EvaluationResult:
         """Evaluate an answer using LLM-as-a-Judge with structured output.
@@ -66,6 +72,21 @@ class LLMJudge(BaseEvaluator):
         Raises:
             ValueError: If the structured output call fails.
         """
+        # Cache lookup
+        cache_key = None
+        if self.cache is not None:
+            cache_key = make_key(
+                "judge",
+                sample=sample,
+                answer=answer,
+                criteria=self.evaluation_criteria,
+                model=self.model_name,
+                threshold=self.threshold,
+            )
+            cached = self.cache.get(cache_key)
+            if cached is not None:
+                return EvaluationResult.from_dict(cached)
+
         rubric = RUBRICS[self.evaluation_criteria]
         prompt = rubric.format(context=sample, question=sample, answer=answer)
 
@@ -85,7 +106,7 @@ class LLMJudge(BaseEvaluator):
         sub_scores = judgment.get("sub_scores")
         confidence = judgment.get("confidence")
 
-        return EvaluationResult.from_llm_judge_result(
+        result = EvaluationResult.from_llm_judge_result(
             score=score / 100.0,  # normalize to 0-1
             reasoning=reasoning,
             sub_scores=sub_scores,
@@ -96,6 +117,11 @@ class LLMJudge(BaseEvaluator):
             answer=answer,
             confidence=confidence,
         )
+
+        if cache_key is not None:
+            self.cache.set(cache_key, result.to_dict())
+
+        return result
 
     def evaluate_multi_criteria(
         self,
